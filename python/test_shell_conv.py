@@ -9,6 +9,13 @@ from mpi4py import MPI
 import time
 from dedalus_sphere import ball, intertwiner
 from dedalus_sphere import jacobi128 as jacobi
+#me trying to use config files
+#1-0 is for a day
+import os
+import sys
+import configparser
+from configparser import ConfigParser
+from pathlib import Path
 
 import matplotlib
 import logging
@@ -20,23 +27,42 @@ matplotlib_logger.setLevel(logging.WARNING)
 comm = MPI.COMM_WORLD
 rank = comm.rank
 
-Lmax = 31
-Nmax = 31
+config_file = Path(sys.argv[-1])
+config = ConfigParser()
+config.read(str(config_file))
+
+logger.info('Running with the following parameters:')
+logger.info(config.items('parameters'))
+
+params = config['parameters']
+
+# create data dir using basename of cfg file
+basedir = Path('frames')
+outdir = "frames_" + config_file.stem
+data_dir = basedir/outdir
+logger.info(data_dir)
+if rank == 0:
+    if not data_dir.exists():
+        data_dir.mkdir(parents=True)
+
+
+Lmax = params.getint('Lmax')
+Nmax = params.getint('Nmax')
 
 # right now can't run with dealiasing
 L_dealias = 1
 N_dealias = 1
 
 # parameters
-Ekman = 1e-3
+Ekman = params.getfloat('Ekman')
 Prandtl = 1
-Rayleigh = 100
+Rayleigh = params.getint('Rayleigh')
 r_inner = 7/13
 r_outer = 20/13
 radii = (r_inner,r_outer)
 
 # mesh must be 2D for plotting
-mesh = [8,8]
+mesh = [params.getint('Xn'),params.getint('Yn')]
 
 c = de.coords.SphericalCoordinates('phi', 'theta', 'r')
 d = de.distributor.Distributor((c,), mesh=mesh)
@@ -163,7 +189,7 @@ E_list = []
 
 report_cadence = 10
 
-plot_cadence = 500
+plot_cadence = 100 #original is 500
 dpi = 150
 
 plot = theta_target in theta
@@ -221,13 +247,13 @@ if rank == 0:
     if remove_m0:
         data -= np.mean(data, axis=0)
     fig, pcm = equator_plot(rg, phig, data, title=name+"'\n t = {:5.2f}".format(0), cmap = 'RdYlBu_r')
-    plt.savefig('frames/%s_%04i.png' %(name, solver.iteration//plot_cadence), dpi=dpi)
+    plt.savefig( str(data_dir)+'/%s_%04i.png' %(name, solver.iteration//plot_cadence), dpi=dpi)
 
 # timestepping loop
 start_time = time.time()
 
 # Integration parameters
-dt = 1.e-4
+dt = 1.e-4/2
 t_end = 10 #1.25
 solver.stop_sim_time = t_end
 
@@ -259,7 +285,7 @@ while solver.ok:
             if remove_m0:
                 data -= np.mean(data, axis=0)
             equator_plot(rg, phig, data, title=name+"'\n t = {:5.2f}".format(solver.sim_time), cmap='RdYlBu_r', pcm=pcm)
-            fig.savefig('frames/%s_%04i.png' %(name,solver.iteration//plot_cadence), dpi=dpi)
+            fig.savefig(str(data_dir)+'/%s_%04i.png' %(name,solver.iteration//plot_cadence), dpi=dpi)
 
     solver.step(dt)
 
@@ -268,4 +294,4 @@ if rank==0:
     print('simulation took: %f' %(end_time-start_time))
     t_list = np.array(t_list)
     E_list = np.array(E_list)
-    np.savetxt('marti_conv.dat',np.array([t_list,E_list]))
+    np.savetxt(str(config_file.stem)+'_marti_conv.dat',np.array([t_list,E_list]))
