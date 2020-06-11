@@ -26,6 +26,7 @@ matplotlib_logger.setLevel(logging.WARNING)
 
 comm = MPI.COMM_WORLD
 rank = comm.rank
+size = comm.size
 
 config_file = Path(sys.argv[-1])
 config = ConfigParser()
@@ -199,13 +200,20 @@ include_data = comm.gather(plot)
 var = T['g']
 name = 'T'
 remove_m0 = True
+
 if plot:
     i_theta = np.argmin(np.abs(theta[0,:,0] - theta_target))
-    plot_data = var[:,i_theta,:].real
+    plot_data = var[:,i_theta,:].real.copy()
+    plot_rec_buf = None
 else:
-    plot_data = None
+    plot_data = np.zeros_like(var[:,0,:].real)
+    
+plot_rec_buf = None
+if rank == 0:
+    rec_shape = [size,] + list(var[:,0,:].shape)
+    plot_rec_buf = np.empty(rec_shape,dtype=plot_data.dtype)
 
-plot_data = comm.gather(plot_data, root=0)
+comm.Gather(plot_data, plot_rec_buf, root=0)
 
 import matplotlib.pyplot as plt
 def equator_plot(r, phi, data, index=None, pcm=None, cmap=None, title=None):
@@ -240,7 +248,7 @@ def equator_plot(r, phi, data, index=None, pcm=None, cmap=None, title=None):
 
 if rank == 0:
     data = []
-    for pd, id in zip(plot_data, include_data):
+    for pd, id in zip(plot_rec_buf, include_data):
         if id: data.append(pd)
     data = np.array(data)
     data = np.transpose(data, axes=(1,0,2)).reshape((2*(Lmax+1),Nmax+1))
@@ -272,13 +280,13 @@ while solver.ok:
 
     if solver.iteration % plot_cadence == 0:
         if plot:
-            plot_data = var[:,i_theta,:].real
-
-        plot_data = comm.gather(plot_data, root=0)
+            plot_data = var[:,i_theta,:].real.copy()
+            
+        comm.Gather(plot_data, plot_rec_buf, root=0)
 
         if rank == 0:
             data = []
-            for pd, id in zip(plot_data, include_data):
+            for pd, id in zip(plot_rec_buf, include_data):
                 if id: data.append(pd)
             data = np.array(data)
             data = np.transpose(data, axes=(1,0,2)).reshape((2*(Lmax+1),Nmax+1))
