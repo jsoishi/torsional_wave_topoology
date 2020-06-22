@@ -127,7 +127,7 @@ problem.add_equation(eq_eval("T(r=20/13) = 0"))
 logger.info("Problem built")
 
 # Solver
-solver = solvers.InitialValueSolver(problem, timesteppers.CNAB2)
+solver = solvers.InitialValueSolver(problem, timesteppers.SBDF2)
 
 # Add taus
 
@@ -207,7 +207,7 @@ if plot:
     plot_rec_buf = None
 else:
     plot_data = np.zeros_like(var[:,0,:].real)
-    
+
 plot_rec_buf = None
 if rank == 0:
     rec_shape = [size,] + list(var[:,0,:].shape)
@@ -260,12 +260,35 @@ if rank == 0:
 # timestepping loop
 start_time = time.time()
 
+#variable time step
+safety = 0.1 # should work for SBDF2
+threshold = 0.1
+dr = np.gradient(r[0,0])
+
+def calculate_dt(dt_old):
+    local_freq  = np.abs(u['g'][2]/dr) + np.abs(u['g'][0]*(Lmax+1)) + np.abs(u['g'][1]*(Lmax+1))
+    global_freq = reducer.global_max(local_freq)
+    if global_freq == 0.:
+        dt = np.inf
+    else:
+        dt = 1 / global_freq
+        dt *= safety
+    if dt > max_dt:
+        dt = max_dt
+    if dt < dt_old*(1+threshold) and dt > dt_old*(1-threshold):
+        dt = dt_old
+    return dt
+
 # Integration parameters
-dt = 1.e-4/2
-t_end = 10 #1.25
+dt = params.getfloat('dt')
+max_dt = 5*dt
+
+t_end = params.getfloat('t_end') #10 #1.25
 solver.stop_sim_time = t_end
 
 while solver.ok:
+
+    dt=calculate_dt(dt)
 
     if solver.iteration % report_cadence == 0:
         E0 = np.sum(vol_correction*weight_r*weight_theta*u['g'].real**2)
@@ -281,7 +304,7 @@ while solver.ok:
     if solver.iteration % plot_cadence == 0:
         if plot:
             plot_data = var[:,i_theta,:].real.copy()
-            
+
         comm.Gather(plot_data, plot_rec_buf, root=0)
 
         if rank == 0:
