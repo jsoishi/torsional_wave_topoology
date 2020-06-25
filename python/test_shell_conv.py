@@ -128,6 +128,8 @@ logger.info("Problem built")
 
 # Solver
 solver = solvers.InitialValueSolver(problem, timesteppers.SBDF2)
+timestepper_history = [0,1]
+hermitian_cadence=100
 
 # Add taus
 
@@ -317,6 +319,11 @@ while solver.ok:
                 data -= np.mean(data, axis=0)
             equator_plot(rg, phig, data, title=name+"'\n t = {:5.2f}".format(solver.sim_time), cmap='RdYlBu_r', pcm=pcm)
             fig.savefig(str(data_dir)+'/%s_%04i.png' %(name,solver.iteration//plot_cadence), dpi=dpi)
+
+    # enforce hermitian symmetry (data should be real)
+    if solver.iteration % hermitian_cadence in timestepper_history:
+        for field in solver.state:
+            field['g'].imag = 0
 
     solver.step(dt)
 
