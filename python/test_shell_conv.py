@@ -18,6 +18,7 @@ from configparser import ConfigParser
 from pathlib import Path
 
 import matplotlib
+import matplotlib.pyplot as plt
 import logging
 logger = logging.getLogger(__name__)
 
@@ -126,9 +127,22 @@ problem.add_equation(eq_eval("tau_u_outer = 0"), condition = "ntheta == 0")
 problem.add_equation(eq_eval("T(r=20/13) = 0"))
 logger.info("Problem built")
 
+
 # Solver
-solver = solvers.InitialValueSolver(problem, timesteppers.SBDF2)
-timestepper_history = [0,1]
+
+
+timestepper=params.get('timestepper')
+if timestepper == 'SBDF2':
+	ts=timesteppers.SBDF2
+	timestepper_history = [0,1]
+elif timestepper == 'SBDF4':
+	ts=timesteppers.SBDF4
+	timestepper_history = [0,1,2,3]
+
+logger.info(params.get('timestepper'),params.getfloat('safety'))
+
+solver = solvers.InitialValueSolver(problem, ts)
+
 hermitian_cadence=100
 
 # Add taus
@@ -217,7 +231,6 @@ if rank == 0:
 
 comm.Gather(plot_data, plot_rec_buf, root=0)
 
-import matplotlib.pyplot as plt
 def equator_plot(r, phi, data, index=None, pcm=None, cmap=None, title=None):
     if pcm is None:
         r_pad   = np.pad(r[0,0,:], ((0,1)), mode='constant', constant_values=(r_inner,r_outer))
@@ -256,16 +269,17 @@ if rank == 0:
     data = np.transpose(data, axes=(1,0,2)).reshape((2*(Lmax+1),Nmax+1))
     if remove_m0:
         data -= np.mean(data, axis=0)
-    fig, pcm = equator_plot(rg, phig, data, title=name+"'\n t = {:5.2f}".format(0), cmap = 'RdYlBu_r')
+    fig, pcm = equator_plot(rg, phig, data, title=name+"'\n t = {:8.4f}".format(0), cmap = 'RdYlBu_r')
     plt.savefig( str(data_dir)+'/%s_%04i.png' %(name, solver.iteration//plot_cadence), dpi=dpi)
 
 # timestepping loop
 start_time = time.time()
 
 #variable time step
-safety = 0.1 # should work for SBDF2
+safety = params.getfloat('safety') # 0.4 should work for SBDF2
 threshold = 0.1
 dr = np.gradient(r[0,0])
+
 
 def calculate_dt(dt_old):
     local_freq  = np.abs(u['g'][2]/dr) + np.abs(u['g'][0]*(Lmax+1)) + np.abs(u['g'][1]*(Lmax+1))
@@ -317,7 +331,7 @@ while solver.ok:
             data = np.transpose(data, axes=(1,0,2)).reshape((2*(Lmax+1),Nmax+1))
             if remove_m0:
                 data -= np.mean(data, axis=0)
-            equator_plot(rg, phig, data, title=name+"'\n t = {:5.2f}".format(solver.sim_time), cmap='RdYlBu_r', pcm=pcm)
+            equator_plot(rg, phig, data, title=name+"'\n t = {:8.4f}".format(solver.sim_time), cmap='RdYlBu_r', pcm=pcm)
             fig.savefig(str(data_dir)+'/%s_%04i.png' %(name,solver.iteration//plot_cadence), dpi=dpi)
 
     # enforce hermitian symmetry (data should be real)
