@@ -322,7 +322,7 @@ while solver.ok:
 
     if solver.sim_time // plot_cadence > plot_num:
 	
-		plot_num += 1
+        plot_num += 1
 	
         if plot:
             plot_data = var[:,i_theta,:].real.copy()
