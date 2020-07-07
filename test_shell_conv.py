@@ -105,6 +105,7 @@ div = lambda A: de.operators.Divergence(A, index=0)
 lap = lambda A: de.operators.Laplacian(A, c)
 grad = lambda A: de.operators.Gradient(A, c)
 dot = lambda A, B: arithmetic.DotProduct(A, B)
+curl = lambda A: de.operators.Curl(A)
 cross = lambda A, B: arithmetic.CrossProduct(A, B)
 ddt = lambda A: de.operators.TimeDerivative(A)
 
@@ -112,7 +113,7 @@ ddt = lambda A: de.operators.TimeDerivative(A)
 def eq_eval(eq_str):
     return [eval(expr) for expr in split_equation(eq_str)]
 problem = problems.IVP([u, p, T, tau_u_inner, tau_T_inner, tau_u_outer, tau_T_outer])
-problem.add_equation(eq_eval("Ekman*ddt(u) - Ekman*lap(u) + grad(p) = - Ekman*dot(u,grad(u)) + Rayleigh*r_vec*T - 2*cross(ez, u)"), condition = "ntheta != 0")
+problem.add_equation(eq_eval("Ekman*ddt(u) - Ekman*lap(u) + grad(p) = Ekman*cross(curl(u), u) + Rayleigh*r_vec*T - 2*cross(ez, u)"), condition = "ntheta != 0")
 problem.add_equation(eq_eval("u = 0"), condition = "ntheta == 0")
 problem.add_equation(eq_eval("div(u) = 0"), condition = "ntheta != 0")
 problem.add_equation(eq_eval("p = 0"), condition = "ntheta == 0")
