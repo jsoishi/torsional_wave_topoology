@@ -7,8 +7,7 @@ from dedalus.extras.flow_tools import GlobalArrayReducer
 import dedalus_sphere
 from mpi4py import MPI
 import time
-from dedalus_sphere import ball, intertwiner
-from dedalus_sphere import jacobi128 as jacobi
+#from dedalus_sphere import ball, intertwiner
 #me trying to use config files
 #1-0 is for a day
 import os
@@ -77,7 +76,7 @@ phig,thetag,rg= b.global_grids((1,1, 1))
 theta_target = thetag[0,(Lmax+1)//2,0]
 
 weight_theta = b.local_colatitude_weights(1)
-weight_r = b.local_radius_weights(1)*r**2
+weight_r = b.radial_basis.local_weights(1)*r**2
 
 u = de.field.Field(dist=d, bases=(b,), tensorsig=(c,), dtype=np.complex128)
 p = de.field.Field(dist=d, bases=(b,), dtype=np.complex128)
@@ -107,14 +106,15 @@ div = lambda A: de.operators.Divergence(A, index=0)
 lap = lambda A: de.operators.Laplacian(A, c)
 grad = lambda A: de.operators.Gradient(A, c)
 dot = lambda A, B: arithmetic.DotProduct(A, B)
-cross = lambda A, B: de.operators.CrossProduct(A, B)
+curl = lambda A: de.operators.Curl(A)
+cross = lambda A, B: arithmetic.CrossProduct(A, B)
 ddt = lambda A: de.operators.TimeDerivative(A)
 
 # Problem
 def eq_eval(eq_str):
     return [eval(expr) for expr in split_equation(eq_str)]
 problem = problems.IVP([u, p, T, tau_u_inner, tau_T_inner, tau_u_outer, tau_T_outer])
-problem.add_equation(eq_eval("Ekman*ddt(u) - Ekman*lap(u) + grad(p) = - Ekman*dot(u,grad(u)) + Rayleigh*r_vec*T - 2*cross(ez, u)"), condition = "ntheta != 0")
+problem.add_equation(eq_eval("Ekman*ddt(u) - Ekman*lap(u) + grad(p) = Ekman*cross(curl(u), u) + Rayleigh*r_vec*T - 2*cross(ez, u)"), condition = "ntheta != 0")
 problem.add_equation(eq_eval("u = 0"), condition = "ntheta == 0")
 problem.add_equation(eq_eval("div(u) = 0"), condition = "ntheta != 0")
 problem.add_equation(eq_eval("p = 0"), condition = "ntheta == 0")
@@ -152,8 +152,8 @@ alpha_BC = (2-1/2, 2-1/2)
 
 def C(N):
     ab = alpha_BC
-    cd = (b.alpha[0]+2,b.alpha[1]+2)
-    return dedalus_sphere.jacobi128.coefficient_connection(N,ab,cd)
+    cd = (b.radial_basis.alpha[0]+2,b.radial_basis.alpha[1]+2)
+    return dedalus_sphere.jacobi.coefficient_connection(N+1,ab,cd)
 
 def BC_rows(N, num_comp):
     N_list = (np.arange(num_comp)+1)*(N + 1)
