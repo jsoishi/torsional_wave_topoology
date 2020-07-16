@@ -110,11 +110,15 @@ curl = lambda A: de.operators.Curl(A)
 cross = lambda A, B: arithmetic.CrossProduct(A, B)
 ddt = lambda A: de.operators.TimeDerivative(A)
 
+# Make grid-locked parameters to avoid unnecessary transforms
+grid_r_vec = de.operators.Grid(r_vec).evaluate()
+grid_ez = de.operators.Grid(ez).evaluate()
+
 # Problem
 def eq_eval(eq_str):
     return [eval(expr) for expr in split_equation(eq_str)]
 problem = problems.IVP([u, p, T, tau_u_inner, tau_T_inner, tau_u_outer, tau_T_outer])
-problem.add_equation(eq_eval("Ekman*ddt(u) - Ekman*lap(u) + grad(p) = Ekman*cross(curl(u), u) + Rayleigh*r_vec*T - 2*cross(ez, u)"), condition = "ntheta != 0")
+problem.add_equation(eq_eval("Ekman*ddt(u) - Ekman*lap(u) + grad(p) = Ekman*cross(curl(u), u) + Rayleigh*grid_r_vec*T - 2*cross(grid_ez, u)"), condition = "ntheta != 0")
 problem.add_equation(eq_eval("u = 0"), condition = "ntheta == 0")
 problem.add_equation(eq_eval("div(u) = 0"), condition = "ntheta != 0")
 problem.add_equation(eq_eval("p = 0"), condition = "ntheta == 0")
@@ -321,9 +325,9 @@ while solver.ok:
         E_list.append(E0)
 
     if solver.sim_time // plot_cadence > plot_num:
-	
+
         plot_num += 1
-	
+
         if plot:
             plot_data = var[:,i_theta,:].real.copy()
 
