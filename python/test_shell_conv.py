@@ -81,6 +81,7 @@ weight_r = b.radial_basis.local_weights(N_dealias)*r**2
 u = de.field.Field(dist=d, bases=(b,), tensorsig=(c,), dtype=np.complex128)
 u.set_scales(b.dealias)
 p = de.field.Field(dist=d, bases=(b,), dtype=np.complex128)
+p.set_scales(b.dealias)
 T = de.field.Field(dist=d, bases=(b,), dtype=np.complex128)
 T.set_scales(b.dealias)
 tau_u_inner = de.field.Field(dist=d, bases=(b_inner,), tensorsig=(c,), dtype=np.complex128)
@@ -122,7 +123,7 @@ grid_ez = de.operators.Grid(ez).evaluate()
 def eq_eval(eq_str):
     return [eval(expr) for expr in split_equation(eq_str)]
 problem = problems.IVP([u, p, T, tau_u_inner, tau_T_inner, tau_u_outer, tau_T_outer])
-problem.add_equation(eq_eval("Ekman*ddt(u) - Ekman*lap(u) + grad(p) = Ekman*cross(curl(u), u) + Rayleigh*grid_r_vec*T - 2*cross(grid_ez, u)"), condition = "ntheta != 0")
+problem.add_equation(eq_eval("ddt(u) - lap(u) + grad(p) = cross(curl(u), u) + Rayleigh/Ekman*grid_r_vec*T - 2/Ekman*cross(grid_ez, u)"), condition = "ntheta != 0")
 problem.add_equation(eq_eval("u = 0"), condition = "ntheta == 0")
 problem.add_equation(eq_eval("div(u) = 0"), condition = "ntheta != 0")
 problem.add_equation(eq_eval("p = 0"), condition = "ntheta == 0")
@@ -140,12 +141,17 @@ logger.info("Problem built")
 
 
 timestepper=params.get('timestepper')
+safety = params.getfloat('safety') # 0.4 should work for SBDF2
 if timestepper == 'SBDF2':
 	ts=timesteppers.SBDF2
 	timestepper_history = [0,1]
 elif timestepper == 'SBDF4':
 	ts=timesteppers.SBDF4
 	timestepper_history = [0,1,2,3]
+else:
+    ts=timesteppers.SBDF2
+    timestepper_history = [0,1]
+    safety = 0.4
 
 logger.info(params.get('timestepper'),params.getfloat('safety'))
 
@@ -278,7 +284,7 @@ if rank == 0:
     for pd, id in zip(plot_rec_buf, include_data):
         if id: data.append(pd)
     data = np.array(data)
-    data = np.transpose(data, axes=(1,0,2)).reshape((2*(Lmax+1),Nmax+1))
+    data = np.transpose(data, axes=(1,0,2)).reshape((int(2*(Lmax+1)*L_dealias),int((Nmax+1)*N_dealias)))
     if remove_m0:
         data -= np.mean(data, axis=0)
     fig, pcm = equator_plot(rg, phig, data, title=name+"'\n t = {:8.4f}".format(0), cmap = 'RdYlBu_r')
@@ -288,7 +294,6 @@ if rank == 0:
 start_time = time.time()
 
 #variable time step
-safety = params.getfloat('safety') # 0.4 should work for SBDF2
 threshold = 0.1
 dr = np.gradient(r[0,0])
 
@@ -342,7 +347,7 @@ while solver.ok:
             for pd, id in zip(plot_rec_buf, include_data):
                 if id: data.append(pd)
             data = np.array(data)
-            data = np.transpose(data, axes=(1,0,2)).reshape((2*(Lmax+1),Nmax+1))
+            data = np.transpose(data, axes=(1,0,2)).reshape((int(2*(Lmax+1)*L_dealias),int((Nmax+1)*N_dealias)))
             if remove_m0:
                 data -= np.mean(data, axis=0)
             equator_plot(rg, phig, data, title=name+"'\n t = {:8.4f}".format(solver.sim_time), cmap='RdYlBu_r', pcm=pcm)
