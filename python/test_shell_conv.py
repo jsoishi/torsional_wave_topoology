@@ -51,8 +51,8 @@ Lmax = params.getint('Lmax')
 Nmax = params.getint('Nmax')
 
 # right now can't run with dealiasing
-L_dealias = 1
-N_dealias = 1
+L_dealias = 3/2
+N_dealias = 3/2
 
 # parameters
 Ekman = params.getfloat('Ekman')
@@ -67,30 +67,34 @@ mesh = [params.getint('Xn'),params.getint('Yn')]
 
 c = de.coords.SphericalCoordinates('phi', 'theta', 'r')
 d = de.distributor.Distributor((c,), mesh=mesh)
-b    = de.basis.SphericalShellBasis(c, (2*(Lmax+1),Lmax+1,Nmax+1), radii=radii)
-bk2  = de.basis.SphericalShellBasis(c, (2*(Lmax+1),Lmax+1,Nmax+1), k=2, radii=radii)
+b    = de.basis.SphericalShellBasis(c, (2*(Lmax+1),Lmax+1,Nmax+1), radii=radii, dealias=(L_dealias,L_dealias,N_dealias))
+
 b_inner = b.S2_basis(radius=r_inner)
 b_outer = b.S2_basis(radius=r_outer)
-phi, theta, r = b.local_grids((1, 1, 1))
-phig,thetag,rg= b.global_grids((1,1, 1))
+phi, theta, r = b.local_grids((L_dealias,L_dealias,N_dealias))
+phig,thetag,rg= b.global_grids((L_dealias,L_dealias,N_dealias))
 theta_target = thetag[0,(Lmax+1)//2,0]
 
-weight_theta = b.local_colatitude_weights(1)
-weight_r = b.radial_basis.local_weights(1)*r**2
+weight_theta = b.local_colatitude_weights(L_dealias)
+weight_r = b.radial_basis.local_weights(N_dealias)*r**2
 
 u = de.field.Field(dist=d, bases=(b,), tensorsig=(c,), dtype=np.complex128)
+u.set_scales(b.dealias)
 p = de.field.Field(dist=d, bases=(b,), dtype=np.complex128)
 T = de.field.Field(dist=d, bases=(b,), dtype=np.complex128)
+T.set_scales(b.dealias)
 tau_u_inner = de.field.Field(dist=d, bases=(b_inner,), tensorsig=(c,), dtype=np.complex128)
 tau_T_inner = de.field.Field(dist=d, bases=(b_inner,), dtype=np.complex128)
 tau_u_outer = de.field.Field(dist=d, bases=(b_outer,), tensorsig=(c,), dtype=np.complex128)
 tau_T_outer = de.field.Field(dist=d, bases=(b_outer,), dtype=np.complex128)
 
 ez = de.field.Field(dist=d, bases=(b,), tensorsig=(c,), dtype=np.complex128)
+ez.set_scales(b.dealias)
 ez['g'][1] = -np.sin(theta)
 ez['g'][2] =  np.cos(theta)
 
 r_vec = de.field.Field(dist=d, bases=(b,), tensorsig=(c,), dtype=np.complex128)
+r_vec.set_scales(b.dealias)
 r_vec['g'][2] = r/r_outer
 
 T_inner = de.field.Field(dist=d, bases=(b_inner,), dtype=np.complex128)
