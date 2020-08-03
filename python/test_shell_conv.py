@@ -287,7 +287,7 @@ if rank == 0:
     data = np.transpose(data, axes=(1,0,2)).reshape((int(2*(Lmax+1)*L_dealias),int((Nmax+1)*N_dealias)))
     if remove_m0:
         data -= np.mean(data, axis=0)
-    fig, pcm = equator_plot(rg, phig, data, title=name+"'\n t = {:8.4f}".format(0), cmap = 'RdYlBu_r')
+    fig, pcm = equator_plot(rg, phig, data, title=name+"'\n t = {:8.5f}".format(0), cmap = 'RdYlBu_r')
     plt.savefig( str(data_dir)+'/%s_%04i.png' %(name, plot_num), dpi=dpi)
 
 # timestepping loop
@@ -318,11 +318,14 @@ def calculate_dt(dt_old):
 t_end = params.getfloat('t_end') #10 #1.25
 solver.stop_sim_time = t_end
 
+logged = False
+
 while solver.ok:
 
     dt=calculate_dt(dt)
 
     if solver.iteration % report_cadence == 0:
+        logged = True
         E0 = np.sum(vol_correction*weight_r*weight_theta*u['g'].real**2)
         E0 = 0.5*E0*(np.pi)/(Lmax+1)/L_dealias/vol
         E0 = reducer.reduce_scalar(E0, MPI.SUM)
@@ -331,12 +334,24 @@ while solver.ok:
         T0 = reducer.reduce_scalar(T0, MPI.SUM)
         logger.info("iter: {:d}, dt={:e}, t={:e}, E0={:e}, T0={:e}".format(solver.iteration, dt, solver.sim_time, E0, T0))
         t_list.append(solver.sim_time)
-        E_list.append(E0)
+        E_list.append(E0)	
 
     if solver.sim_time // plot_cadence > plot_num:
 
         plot_num += 1
 
+        if logged == False:
+		#logging information again, makse the plot possible
+            E0 = np.sum(vol_correction*weight_r*weight_theta*u['g'].real**2)
+            E0 = 0.5*E0*(np.pi)/(Lmax+1)/L_dealias/vol
+            E0 = reducer.reduce_scalar(E0, MPI.SUM)
+            T0 = np.sum(vol_correction*weight_r*weight_theta*T['g'].real**2)
+            T0 = 0.5*T0*(np.pi)/(Lmax+1)/L_dealias/vol
+            T0 = reducer.reduce_scalar(T0, MPI.SUM)
+            logger.info("iter: {:d}, dt={:e}, t={:e}, E0={:e}, T0={:e}".format(solver.iteration, dt, solver.sim_time, E0, T0))
+            t_list.append(solver.sim_time)
+            E_list.append(E0)
+	    
         if plot:
             plot_data = var[:,i_theta,:].real.copy()
 
@@ -350,14 +365,15 @@ while solver.ok:
             data = np.transpose(data, axes=(1,0,2)).reshape((int(2*(Lmax+1)*L_dealias),int((Nmax+1)*N_dealias)))
             if remove_m0:
                 data -= np.mean(data, axis=0)
-            equator_plot(rg, phig, data, title=name+"'\n t = {:8.4f}".format(solver.sim_time), cmap='RdYlBu_r', pcm=pcm)
+            equator_plot(rg, phig, data, title=name+"'\n t = {:8.5f}".format(solver.sim_time), cmap='RdYlBu_r', pcm=pcm)
             fig.savefig(str(data_dir)+'/%s_%04i.png' %(name,plot_num), dpi=dpi)
 
     # enforce hermitian symmetry (data should be real)
     if solver.iteration % hermitian_cadence in timestepper_history:
         for field in solver.state:
             field['g'].imag = 0
-
+	
+    logged = False
     solver.step(dt)
 
 end_time = time.time()
