@@ -313,7 +313,7 @@ def calculate_dt(dt_old):
     return dt
 
 
-solver.evaluator.add_file_handler('checkpoint',iter=200),max_writes=5)
+solver.evaluator.add_file_handler('checkpoint',iter=200,max_writes=5)
 checkpoint.add_task(T, name='T')
 
 # Integration parameters
