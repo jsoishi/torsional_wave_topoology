@@ -26,6 +26,7 @@ matplotlib_logger.setLevel(logging.WARNING)
 
 comm = MPI.COMM_WORLD
 rank = comm.rank
+dtype = np.float64
 size = comm.size
 
 config_file = Path(sys.argv[-1])
@@ -51,8 +52,8 @@ Lmax = params.getint('Lmax')
 Nmax = params.getint('Nmax')
 
 # right now can't run with dealiasing
-L_dealias = 3/2
-N_dealias = 3/2
+L_dealias = 1#3/2
+N_dealias = 1#3/2
 
 # parameters
 Ekman = params.getfloat('Ekman')
@@ -67,7 +68,7 @@ mesh = [params.getint('Xn'),params.getint('Yn')]
 
 c = de.coords.SphericalCoordinates('phi', 'theta', 'r')
 d = de.distributor.Distributor((c,), mesh=mesh)
-b    = de.basis.SphericalShellBasis(c, (2*(Lmax+1),Lmax+1,Nmax+1), radii=radii, dealias=(L_dealias,L_dealias,N_dealias))
+b    = de.basis.SphericalShellBasis(c, (2*(Lmax+1),Lmax+1,Nmax+1), radii=radii, dealias=(L_dealias,L_dealias,N_dealias), dtype=dtype)
 
 b_inner = b.S2_basis(radius=r_inner)
 b_outer = b.S2_basis(radius=r_outer)
@@ -76,29 +77,29 @@ phig,thetag,rg= b.global_grids((L_dealias,L_dealias,N_dealias))
 theta_target = thetag[0,(Lmax+1)//2,0]
 
 weight_theta = b.local_colatitude_weights(L_dealias)
-weight_r = b.radial_basis.local_weights(N_dealias)*r**2
+weight_r = b.local_radial_weights(N_dealias)*r**2
 
-u = de.field.Field(dist=d, bases=(b,), tensorsig=(c,), dtype=np.complex128)
+u = de.field.Field(dist=d, bases=(b,), tensorsig=(c,), dtype=dtype)
 u.set_scales(b.dealias)
-p = de.field.Field(dist=d, bases=(b,), dtype=np.complex128)
+p = de.field.Field(dist=d, bases=(b,), dtype=dtype)
 p.set_scales(b.dealias)
-T = de.field.Field(dist=d, bases=(b,), dtype=np.complex128)
+T = de.field.Field(dist=d, bases=(b,), dtype=dtype)
 T.set_scales(b.dealias)
-tau_u_inner = de.field.Field(dist=d, bases=(b_inner,), tensorsig=(c,), dtype=np.complex128)
-tau_T_inner = de.field.Field(dist=d, bases=(b_inner,), dtype=np.complex128)
-tau_u_outer = de.field.Field(dist=d, bases=(b_outer,), tensorsig=(c,), dtype=np.complex128)
-tau_T_outer = de.field.Field(dist=d, bases=(b_outer,), dtype=np.complex128)
+tau_u_inner = de.field.Field(dist=d, bases=(b_inner,), tensorsig=(c,), dtype=dtype)
+tau_T_inner = de.field.Field(dist=d, bases=(b_inner,), dtype=dtype)
+tau_u_outer = de.field.Field(dist=d, bases=(b_outer,), tensorsig=(c,), dtype=dtype)
+tau_T_outer = de.field.Field(dist=d, bases=(b_outer,), dtype=dtype)
 
-ez = de.field.Field(dist=d, bases=(b,), tensorsig=(c,), dtype=np.complex128)
+ez = de.field.Field(dist=d, bases=(b,), tensorsig=(c,), dtype=dtype)
 ez.set_scales(b.dealias)
 ez['g'][1] = -np.sin(theta)
 ez['g'][2] =  np.cos(theta)
 
-r_vec = de.field.Field(dist=d, bases=(b,), tensorsig=(c,), dtype=np.complex128)
+r_vec = de.field.Field(dist=d, bases=(b,), tensorsig=(c,), dtype=dtype)
 r_vec.set_scales(b.dealias)
 r_vec['g'][2] = r/r_outer
 
-T_inner = de.field.Field(dist=d, bases=(b_inner,), dtype=np.complex128)
+T_inner = de.field.Field(dist=d, bases=(b_inner,), dtype=dtype)
 T_inner['g'] = 1.
 
 # initial condition
@@ -174,37 +175,56 @@ def BC_rows(N, num_comp):
     return N_list
 
 for subproblem in solver.subproblems:
-    if subproblem.group[1] != 0:
-        ell = subproblem.group[1]
-        M = subproblem.M_min
-        L = subproblem.L_min
-        shape = M.shape
-        subproblem.M_min[:,-8:] = 0
-        subproblem.M_min.eliminate_zeros()
-        N0, N1, N2, N3, N4 = BC_rows(Nmax, 5)
-        tau_columns = np.zeros((shape[0], 8))
-        tau_columns[  :N0,0] = (C(Nmax))[:,-1]
-        tau_columns[N0:N1,1] = (C(Nmax))[:,-1]
-        tau_columns[N1:N2,2] = (C(Nmax))[:,-1]
-        tau_columns[N3:N4,3] = (C(Nmax))[:,-1]
-        tau_columns[  :N0,4] = (C(Nmax))[:,-2]
-        tau_columns[N0:N1,5] = (C(Nmax))[:,-2]
-        tau_columns[N1:N2,6] = (C(Nmax))[:,-2]
-        tau_columns[N3:N4,7] = (C(Nmax))[:,-2]
-        subproblem.L_min[:,-8:] = tau_columns
-        subproblem.L_min.eliminate_zeros()
-        subproblem.expand_matrices(['M','L'])
-    else: # ell = 0
-        M = subproblem.M_min
-        L = subproblem.L_min
-        shape = M.shape
-        subproblem.M_min[:,-8:] = 0
-        subproblem.M_min.eliminate_zeros()
-        N0, N1, N2, N3, N4 = BC_rows(Nmax, 5)
-        subproblem.L_min[N3:N4,N4+3] = (C(Nmax))[:,-1].reshape((N0,1))
-        subproblem.L_min[N3:N4,N4+7] = (C(Nmax))[:,-2].reshape((N0,1))
-        subproblem.L_min.eliminate_zeros()
-        subproblem.expand_matrices(['M','L'])
+    ell = subproblem.group[1]
+    L = subproblem.left_perm.T @ subproblem.L_min
+    shape = L.shape
+    if dtype == np.complex128:
+        if ell != 0:
+            N0, N1, N2, N3, N4 = BC_rows(Nmax, 5)
+            tau_columns = np.zeros((shape[0], 8))
+            tau_columns[  :N0,0] = (C(Nmax))[:,-1]
+            tau_columns[N0:N1,1] = (C(Nmax))[:,-1]
+            tau_columns[N1:N2,2] = (C(Nmax))[:,-1]
+            tau_columns[N3:N4,3] = (C(Nmax))[:,-1]
+            tau_columns[  :N0,4] = (C(Nmax))[:,-2]
+            tau_columns[N0:N1,5] = (C(Nmax))[:,-2]
+            tau_columns[N1:N2,6] = (C(Nmax))[:,-2]
+            tau_columns[N3:N4,7] = (C(Nmax))[:,-2]
+            L[:,-8:] = tau_columns
+        else: # ell = 0
+            N0, N1, N2, N3, N4 = BC_rows(Nmax, 5)
+            L[N3:N4,N4+3] = (C(Nmax))[:,-1].reshape((N0,1))
+            L[N3:N4,N4+7] = (C(Nmax))[:,-2].reshape((N0,1))
+    elif dtype == np.float64:
+        N0, N1, N2, N3, N4 = BC_rows(Nmax, 5)*2
+        if ell != 0:
+            tau_columns = np.zeros((shape[0], 16))
+            tau_columns[ 0:Nmax+1,0] = (C(Nmax))[:,-1]
+            tau_columns[N0:N0+Nmax+1,2] = (C(Nmax))[:,-1]
+            tau_columns[N1:N1+Nmax+1,4] = (C(Nmax))[:,-1]
+            tau_columns[N3:N3+Nmax+1,6] = (C(Nmax))[:,-1]
+            tau_columns[ 0:Nmax+1,8] = (C(Nmax))[:,-2]
+            tau_columns[N0:N0+Nmax+1,10] = (C(Nmax))[:,-2]
+            tau_columns[N1:N1+Nmax+1,12] = (C(Nmax))[:,-2]
+            tau_columns[N3:N3+Nmax+1,14] = (C(Nmax))[:,-2]
+            tau_columns[Nmax+1:2*(Nmax+1),1] = (C(Nmax))[:,-1]
+            tau_columns[N0+Nmax+1:N0+2*(Nmax+1),3] = (C(Nmax))[:,-1]
+            tau_columns[N1+Nmax+1:N1+2*(Nmax+1),5] = (C(Nmax))[:,-1]
+            tau_columns[N3+Nmax+1:N3+2*(Nmax+1),7] = (C(Nmax))[:,-1]
+            tau_columns[Nmax+1:2*(Nmax+1),9] = (C(Nmax))[:,-2]
+            tau_columns[N0+Nmax+1:N0+2*(Nmax+1),11] = (C(Nmax))[:,-2]
+            tau_columns[N1+Nmax+1:N1+2*(Nmax+1),13] = (C(Nmax))[:,-2]
+            tau_columns[N3+Nmax+1:N3+2*(Nmax+1),15] = (C(Nmax))[:,-2]
+            L[:,-16:] = tau_columns
+        else: # ell = 0
+            L[N3:N3+Nmax+1,N4+6] = (C(Nmax))[:,-1].reshape((N0//2,1))
+            L[N3:N3+Nmax+1,N4+14] = (C(Nmax))[:,-2].reshape((N0//2,1))
+            L[N3+Nmax+1:N3+2*(Nmax+1),N4+7] = (C(Nmax))[:,-1].reshape((N0//2,1))
+            L[N3+Nmax+1:N3+2*(Nmax+1),N4+15] = (C(Nmax))[:,-2].reshape((N0//2,1))
+            
+    L.eliminate_zeros()
+    subproblem.L_min = subproblem.left_perm @ L
+    subproblem.expand_matrices(['M','L'])
 
 reducer = GlobalArrayReducer(d.comm_cart)
 
@@ -231,23 +251,23 @@ plot = theta_target in theta
 
 include_data = comm.gather(plot)
 
-var = T['g']
-name = 'T'
-remove_m0 = True
+# var = T['g']
+# name = 'T'
+# remove_m0 = True
 
-if plot:
-    i_theta = np.argmin(np.abs(theta[0,:,0] - theta_target))
-    plot_data = var[:,i_theta,:].real.copy()
-    plot_rec_buf = None
-else:
-    plot_data = np.zeros_like(var[:,0,:].real)
+# if plot:
+#     i_theta = np.argmin(np.abs(theta[0,:,0] - theta_target))
+#     plot_data = var[:,i_theta,:].real.copy()
+#     plot_rec_buf = None
+# else:
+#     plot_data = np.zeros_like(var[:,0,:].real)
 
-plot_rec_buf = None
-if rank == 0:
-    rec_shape = [size,] + list(var[:,0,:].shape)
-    plot_rec_buf = np.empty(rec_shape,dtype=plot_data.dtype)
+# plot_rec_buf = None
+# if rank == 0:
+#     rec_shape = [size,] + list(var[:,0,:].shape)
+#     plot_rec_buf = np.empty(rec_shape,dtype=plot_data.dtype)
 
-comm.Gather(plot_data, plot_rec_buf, root=0)
+# comm.Gather(plot_data, plot_rec_buf, root=0)
 
 def equator_plot(r, phi, data, index=None, pcm=None, cmap=None, title=None):
     if pcm is None:
@@ -279,16 +299,16 @@ def equator_plot(r, phi, data, index=None, pcm=None, cmap=None, title=None):
         if title is not None:
             pcm.ax_cb.set_title(title)
 
-if rank == 0:
-    data = []
-    for pd, id in zip(plot_rec_buf, include_data):
-        if id: data.append(pd)
-    data = np.array(data)
-    data = np.transpose(data, axes=(1,0,2)).reshape((int(2*(Lmax+1)*L_dealias),int((Nmax+1)*N_dealias)))
-    if remove_m0:
-        data -= np.mean(data, axis=0)
-    fig, pcm = equator_plot(rg, phig, data, title=name+"'\n t = {:8.5f}".format(0), cmap = 'RdYlBu_r')
-    plt.savefig( str(data_dir)+'/%s_%04i.png' %(name, plot_num), dpi=dpi)
+# if rank == 0:
+#     data = []
+#     for pd, id in zip(plot_rec_buf, include_data):
+#         if id: data.append(pd)
+#     data = np.array(data)
+#     data = np.transpose(data, axes=(1,0,2)).reshape((int(2*(Lmax+1)*L_dealias),int((Nmax+1)*N_dealias)))
+#     if remove_m0:
+#         data -= np.mean(data, axis=0)
+#     fig, pcm = equator_plot(rg, phig, data, title=name+"'\n t = {:8.5f}".format(0), cmap = 'RdYlBu_r')
+#     plt.savefig( str(data_dir)+'/%s_%04i.png' %(name, plot_num), dpi=dpi)
 
 # timestepping loop
 start_time = time.time()
@@ -313,7 +333,7 @@ def calculate_dt(dt_old):
     return dt
 
 
-solver.evaluator.add_file_handler('checkpoint',iter=200,max_writes=5)
+checkpoint = solver.evaluator.add_file_handler('checkpoint',iter=1,max_writes=5)
 checkpoint.add_task(T, name='T')
 
 # Integration parameters
@@ -321,6 +341,7 @@ checkpoint.add_task(T, name='T')
 
 t_end = params.getfloat('t_end') #10 #1.25
 solver.stop_sim_time = t_end
+solver.stop_iteration=100
 
 logged = False
 
@@ -333,6 +354,7 @@ while solver.ok:
         E0 = np.sum(vol_correction*weight_r*weight_theta*u['g'].real**2)
         E0 = 0.5*E0*(np.pi)/(Lmax+1)/L_dealias/vol
         E0 = reducer.reduce_scalar(E0, MPI.SUM)
+        logger.info("T['g'].shape = {}".format(T['g'].shape))
         T0 = np.sum(vol_correction*weight_r*weight_theta*T['g'].real**2)
         T0 = 0.5*T0*(np.pi)/(Lmax+1)/L_dealias/vol
         T0 = reducer.reduce_scalar(T0, MPI.SUM)
@@ -375,7 +397,7 @@ while solver.ok:
     # enforce hermitian symmetry (data should be real)
     if solver.iteration % hermitian_cadence in timestepper_history:
         for field in solver.state:
-            field['g'].imag = 0
+            field.require_grid_space()
 	
     logged = False
     solver.step(dt)
