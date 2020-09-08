@@ -153,7 +153,7 @@ else:
     timestepper_history = [0,1]
     safety = 0.4
 
-logger.info(params.get('timestepper'),params.getfloat('safety'))
+logger.info("timestepper: {} with safety {}".format(params.get('timestepper'),params.getfloat('safety')))
 
 solver = solvers.InitialValueSolver(problem, ts)
 
@@ -223,7 +223,7 @@ max_dt = 5*dt
 
 report_cadence = 10
 
-plot_cadence = max_dt*100 #original is 100, 500
+plot_cadence = max_dt*200 #original is 100, 500
 plot_num=0
 dpi = 150
 
@@ -311,6 +311,10 @@ def calculate_dt(dt_old):
     if dt < dt_old*(1+threshold) and dt > dt_old*(1-threshold):
         dt = dt_old
     return dt
+
+
+solver.evaluator.add_file_handler('checkpoint',iter=200),max_writes=5)
+checkpoint.add_task(T, name='T')
 
 # Integration parameters
 
