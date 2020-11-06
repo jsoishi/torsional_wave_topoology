@@ -52,8 +52,8 @@ Lmax = params.getint('Lmax')
 Nmax = params.getint('Nmax')
 
 # right now can't run with dealiasing
-L_dealias = 1#3/2
-N_dealias = 1#3/2
+L_dealias = 3/2
+N_dealias = 3/2
 
 # parameters
 Ekman = params.getfloat('Ekman')
@@ -238,8 +238,9 @@ t = 0.
 t_list = []
 E_list = []
 
-dt = params.getfloat('dt')
-max_dt = 5*dt
+max_dt = params.getfloat('max_dt')
+init_dt = params.getfloat('init_dt')
+dt=init_dt
 
 report_cadence = 10
 
@@ -251,23 +252,22 @@ plot = theta_target in theta
 
 include_data = comm.gather(plot)
 
-# var = T['g']
-# name = 'T'
-# remove_m0 = True
+var = T['g']
+name = 'T'
+remove_m0 = True
 
-# if plot:
-#     i_theta = np.argmin(np.abs(theta[0,:,0] - theta_target))
-#     plot_data = var[:,i_theta,:].real.copy()
-#     plot_rec_buf = None
-# else:
-#     plot_data = np.zeros_like(var[:,0,:].real)
+if plot:
+    i_theta = np.argmin(np.abs(theta[0,:,0] - theta_target))
+    plot_data = var[:,i_theta,:].real.copy()
+    plot_rec_buf = None
+else:
+    plot_data = np.zeros_like(var[:,0,:].real)
 
-# plot_rec_buf = None
-# if rank == 0:
-#     rec_shape = [size,] + list(var[:,0,:].shape)
-#     plot_rec_buf = np.empty(rec_shape,dtype=plot_data.dtype)
-
-# comm.Gather(plot_data, plot_rec_buf, root=0)
+plot_rec_buf = None
+if rank == 0:
+    rec_shape = [size,] + list(var[:,0,:].shape)
+    plot_rec_buf = np.empty(rec_shape,dtype=plot_data.dtype)
+comm.Gather(plot_data, plot_rec_buf, root=0)
 
 def equator_plot(r, phi, data, index=None, pcm=None, cmap=None, title=None):
     if pcm is None:
@@ -299,16 +299,16 @@ def equator_plot(r, phi, data, index=None, pcm=None, cmap=None, title=None):
         if title is not None:
             pcm.ax_cb.set_title(title)
 
-# if rank == 0:
-#     data = []
-#     for pd, id in zip(plot_rec_buf, include_data):
-#         if id: data.append(pd)
-#     data = np.array(data)
-#     data = np.transpose(data, axes=(1,0,2)).reshape((int(2*(Lmax+1)*L_dealias),int((Nmax+1)*N_dealias)))
-#     if remove_m0:
-#         data -= np.mean(data, axis=0)
-#     fig, pcm = equator_plot(rg, phig, data, title=name+"'\n t = {:8.5f}".format(0), cmap = 'RdYlBu_r')
-#     plt.savefig( str(data_dir)+'/%s_%04i.png' %(name, plot_num), dpi=dpi)
+if rank == 0:
+    data = []
+    for pd, id in zip(plot_rec_buf, include_data):
+        if id: data.append(pd)
+    data = np.array(data)
+    data = np.transpose(data, axes=(1,0,2)).reshape((int(2*(Lmax+1)*L_dealias),int((Nmax+1)*N_dealias)))
+    if remove_m0:
+        data -= np.mean(data, axis=0)
+    fig, pcm = equator_plot(rg, phig, data, title=name+"'\n t = {:8.5f}".format(0), cmap = 'RdYlBu_r')
+    plt.savefig( str(data_dir)+'/%s_%04i.png' %(name, plot_num), dpi=dpi)
 
 # timestepping loop
 start_time = time.time()
@@ -321,41 +321,54 @@ dr = np.gradient(r[0,0])
 def calculate_dt(dt_old):
     local_freq  = np.abs(u['g'][2]/dr) + np.abs(u['g'][0]*(Lmax+1)) + np.abs(u['g'][1]*(Lmax+1))
     global_freq = reducer.global_max(local_freq)
+    
     if global_freq == 0.:
         dt = np.inf
     else:
         dt = 1 / global_freq
         dt *= safety
+
     if dt > max_dt:
         dt = max_dt
+
+    if solver.sim_time < 0.002 and dt > init_dt:
+        dt = init_dt
+
     if dt < dt_old*(1+threshold) and dt > dt_old*(1-threshold):
         dt = dt_old
     return dt
 
 
-checkpoint = solver.evaluator.add_file_handler('checkpoint',iter=1,max_writes=5)
+checkpoint = solver.evaluator.add_file_handler("data_" + config_file.stem,iter=500,max_writes=10)
 checkpoint.add_task(T, name='T')
+checkpoint.add_task(u, name='u')
+
+#coeffcheckpoint = solver.evaluator.add_file_handler('coeffcheckpoint',iter=1500,max_writes=5)
+#coeffcheckpoint.add_task(T, name='T', layout='c')
 
 # Integration parameters
 
 
 t_end = params.getfloat('t_end') #10 #1.25
 solver.stop_sim_time = t_end
-solver.stop_iteration=100
+#solver.stop_iteration=100
 
 logged = False
 
 while solver.ok:
 
     dt=calculate_dt(dt)
-
+    
     if solver.iteration % report_cadence == 0:
         logged = True
-        E0 = np.sum(vol_correction*weight_r*weight_theta*u['g'].real**2)
+#        logger.info("u['g'].shape = {}".format(u['g'].shape))
+#        logger.info("weight_r = {}".format(weight_r.shape))
+#        logger.info("weight_theta = {}".format(weight_theta.shape))
+        E0 = np.sum(vol_correction*weight_r*weight_theta*u['g']**2)
         E0 = 0.5*E0*(np.pi)/(Lmax+1)/L_dealias/vol
         E0 = reducer.reduce_scalar(E0, MPI.SUM)
-        logger.info("T['g'].shape = {}".format(T['g'].shape))
-        T0 = np.sum(vol_correction*weight_r*weight_theta*T['g'].real**2)
+        T.require_scales(L_dealias)
+        T0 = np.sum(vol_correction*weight_r*weight_theta*T['g']**2)
         T0 = 0.5*T0*(np.pi)/(Lmax+1)/L_dealias/vol
         T0 = reducer.reduce_scalar(T0, MPI.SUM)
         logger.info("iter: {:d}, dt={:e}, t={:e}, E0={:e}, T0={:e}".format(solver.iteration, dt, solver.sim_time, E0, T0))
@@ -368,10 +381,11 @@ while solver.ok:
 
         if logged == False:
 		#logging information again, makse the plot possible
-            E0 = np.sum(vol_correction*weight_r*weight_theta*u['g'].real**2)
+            E0 = np.sum(vol_correction*weight_r*weight_theta*u['g']**2)
             E0 = 0.5*E0*(np.pi)/(Lmax+1)/L_dealias/vol
             E0 = reducer.reduce_scalar(E0, MPI.SUM)
-            T0 = np.sum(vol_correction*weight_r*weight_theta*T['g'].real**2)
+            T.require_scales(L_dealias)
+            T0 = np.sum(vol_correction*weight_r*weight_theta*T['g']**2)            
             T0 = 0.5*T0*(np.pi)/(Lmax+1)/L_dealias/vol
             T0 = reducer.reduce_scalar(T0, MPI.SUM)
             logger.info("iter: {:d}, dt={:e}, t={:e}, E0={:e}, T0={:e}".format(solver.iteration, dt, solver.sim_time, E0, T0))
@@ -400,6 +414,7 @@ while solver.ok:
             field.require_grid_space()
 	
     logged = False
+#    logger.info("dt={:e}".format(dt))
     solver.step(dt)
 
 end_time = time.time()
