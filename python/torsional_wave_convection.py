@@ -52,8 +52,8 @@ Lmax = params.getint('Lmax')
 Nmax = params.getint('Nmax')
 
 # right now can't run with dealiasing
-L_dealias = 3/2
-N_dealias = 3/2
+L_dealias = 1#3/2
+N_dealias = 1#3/2
 
 # parameters
 Ekman = params.getfloat('Ekman')
@@ -244,7 +244,7 @@ dt=init_dt
 
 report_cadence = 10
 
-plot_cadence = max_dt*200 #original is 100, 500
+plot_cadence = max_dt*250 #original is 100, 500
 plot_num=0
 dpi = 150
 
@@ -254,7 +254,8 @@ include_data = comm.gather(plot)
 
 var = T['g']
 name = 'T'
-remove_m0 = True
+#used to be true, just trying it out
+remove_m0 = False
 
 if plot:
     i_theta = np.argmin(np.abs(theta[0,:,0] - theta_target))
